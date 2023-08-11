@@ -54,6 +54,10 @@ type
     when chronosFutureId:
       internalId*: uint
 
+    when chronosFuturesInstrumentation:
+      onFutureRunning*, onFutureStop*: proc (fut: FutureBase) {.gcsafe, raises: [].}
+      onFuturePause*: proc (fut, child: FutureBase) {.gcsafe, raises: [].}
+
     when chronosStackTrace:
       internalErrorStackTrace*: StackTrace
       internalStackTrace*: StackTrace ## For debugging purposes only.
@@ -120,6 +124,7 @@ proc internalInitFutureBase*(
       if isNil(futureList.head):
         futureList.head = fut
       futureList.count.inc()
+
 
 # Public API
 template init*[T](F: type Future[T], fromProc: static[string] = ""): Future[T] =
