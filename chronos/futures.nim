@@ -14,6 +14,24 @@ import "."/[config, srcloc]
 
 export srcloc
 
+when chronosClosureDurationMetric:
+  import std/tables
+  import timer
+
+  type
+    CallbackDurationMetric* = ref object
+      ## Holds average timing information for a given closure
+      closureLoc*: ptr SrcLoc
+      totalDuration*: Duration
+      minSingleTime*: Duration
+      maxSingleTime*: Duration
+      count*: int64
+
+  var callbackDurations {.threadvar.}: Table[ptr SrcLoc, CallbackDurationMetric]
+
+  proc getCallbackDurations*(): Table[ptr SrcLoc, CallbackDurationMetric] =
+    callbackDurations
+
 when chronosStackTrace:
   type StackTrace = string
 
@@ -53,6 +71,9 @@ type
 
     when chronosFutureId:
       internalId*: uint
+
+    when chronosClosureDurationMetric:
+      internalDuration*: Duration
 
     when chronosStackTrace:
       internalErrorStackTrace*: StackTrace
@@ -120,6 +141,23 @@ proc internalInitFutureBase*(
       if isNil(futureList.head):
         futureList.head = fut
       futureList.count.inc()
+
+  when chronosClosureDurationMetric:
+    discard callbackDurations.hasKeyOrPut(loc, CallbackDurationMetric(minSingleTime: InfiniteDuration))
+
+when chronosClosureDurationMetric:
+  proc setFutureDuration*(fut: FutureBase) {.inline.} =
+    ## used for setting the duration
+    let loc = fut.internalLocation[Create]
+    callbackDurations.withValue(loc, metric):
+      metric.totalDuration += fut.internalDuration
+      metric.count.inc
+      metric.minSingleTime = min(metric.minSingleTime, fut.internalDuration)
+      metric.maxSingleTime = max(metric.maxSingleTime, fut.internalDuration)
+      # handle overflow
+      if metric.count == metric.count.typeof.high:
+        metric.totalDuration = ZeroDuration
+        metric.count = 0
 
 # Public API
 template init*[T](F: type Future[T], fromProc: static[string] = ""): Future[T] =

@@ -7,6 +7,7 @@
 #              MIT license (LICENSE-MIT)
 import unittest2
 import ../chronos, ../chronos/config
+import std/[tables, os] 
 
 {.used.}
 
@@ -83,5 +84,58 @@ suite "Asynchronous utilities test suite":
       check:
         getCount() == 0'u
         pendingFuturesCount() == 0'u
+    else:
+      skip()
+
+
+  test "Test Closure During Metrics":
+    when chronosClosureDurationMetric:
+      proc simpleAsync1() {.async.} =
+        os.sleep(50)
+      
+      waitFor(simpleAsync1())
+
+      let metrics = getCallbackDurations()
+      for (k,v) in metrics.pairs():
+        let count = v.count
+        let totalDuration = v.totalDuration
+        if count > 0:
+          echo ""
+          echo "metric: ", $k
+          echo "count: ", count
+          echo "total: ", totalDuration
+          echo "avg: ", totalDuration div count
+        if k.procedure == "simpleAsync1":
+          check v.totalDuration <= 60.milliseconds()
+          check v.totalDuration >= 50.milliseconds()
+
+    else:
+      skip()
+
+  test "Test Closure During Metrics await":
+    when chronosClosureDurationMetric:
+      proc simpleAsync2() {.async.} =
+        os.sleep(50)
+        await sleepAsync(50.milliseconds)
+        os.sleep(50)
+      
+      waitFor(simpleAsync2())
+
+      let metrics = getCallbackDurations()
+      for (k,v) in metrics.pairs():
+        let count = v.count
+        let totalDuration = v.totalDuration
+        if count > 0:
+          echo ""
+          echo "metric: ", $k
+          echo "count: ", count
+          echo "total: ", totalDuration
+          echo "min: ", v.minSingleTime
+          echo "max: ", v.maxSingleTime
+          echo "avg: ", totalDuration div count
+        if k.procedure == "simpleAsync2":
+          check v.totalDuration <= 120.milliseconds()
+          check v.totalDuration >= 100.milliseconds()
+
     else:
       skip()
