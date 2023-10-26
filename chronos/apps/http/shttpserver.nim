@@ -30,19 +30,11 @@ proc closeSecConnection(conn: HttpConnectionRef) {.async.} =
     var pending: seq[Future[void]]
     pending.add(conn.writer.closeWait())
     pending.add(conn.reader.closeWait())
-    try:
-      await allFutures(pending)
-    except CancelledError:
-      await allFutures(pending)
-    # After we going to close everything else.
-    pending.setLen(3)
-    pending[0] = conn.mainReader.closeWait()
-    pending[1] = conn.mainWriter.closeWait()
-    pending[2] = conn.transp.closeWait()
-    try:
-      await allFutures(pending)
-    except CancelledError:
-      await allFutures(pending)
+    pending.add(conn.mainReader.closeWait())
+    pending.add(conn.mainWriter.closeWait())
+    pending.add(conn.transp.closeWait())
+    await noCancel(allFutures(pending))
+    reset(cast[SecureHttpConnectionRef](conn)[])
     untrackCounter(HttpServerSecureConnectionTrackerName)
     conn.state = HttpState.Closed
 
@@ -74,9 +66,16 @@ proc createSecConnection(server: HttpServerRef,
   except CancelledError as exc:
     await HttpConnectionRef(sconn).closeWait()
     raise exc
-  except TLSStreamError:
+  except TLSStreamError as exc:
     await HttpConnectionRef(sconn).closeWait()
-    raiseHttpCriticalError("Unable to establish secure connection")
+    let msg = "Unable to establish secure connection, reason [" &
+              $exc.msg & "]"
+    raiseHttpCriticalError(msg)
+  except CatchableError as exc:
+    await HttpConnectionRef(sconn).closeWait()
+    let msg = "Unexpected error while trying to establish secure connection, " &
+              "reason [" & $exc.msg & "]"
+    raiseHttpCriticalError(msg)
 
 proc new*(htype: typedesc[SecureHttpServerRef],
           address: TransportAddress,
